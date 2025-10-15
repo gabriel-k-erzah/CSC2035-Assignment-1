@@ -2,7 +2,10 @@
  * Replace the following string of 0s with your student number
  * 000000000
  */
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
@@ -60,9 +63,26 @@ public class Protocol {
 	 * This method sends protocol metadata to the server.
 	 * See coursework specification for full details.	
 	 */
-	public void sendMetadata()   { 
-		System.exit(0);
-	} 
+	public void sendMetadata()
+    {
+        //buffer needed to send over information
+        //need to count the total readings
+        int total = 0;
+        try(BufferedReader br = new BufferedReader(new FileReader(inputFile))){
+            String line;
+
+            //need to check if the there are still lines to read
+            while((line = br.readLine()) != null){
+                if (!line.trim().isEmpty()){
+                    total++;
+                }
+            }
+
+        //temp catch to be updated later
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
 
 	/* 
