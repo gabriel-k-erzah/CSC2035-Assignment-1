@@ -63,10 +63,21 @@ public class Protocol {
 	 * This method sends protocol metadata to the server.
 	 * See coursework specification for full details.	
 	 */
+
+    /*Big picture,
+    *
+    *before sending the actual csv reading we need to tell the client what to expect,
+    *
+    * "I will be sending over this many readings, in batches of X, please store them in this output file."
+    *
+    * */
 	public void sendMetadata()
     {
+        //ideas:
         //buffer needed to send over information
         //need to count the total readings
+
+
         int total = 0;
         try(BufferedReader br = new BufferedReader(new FileReader(inputFile))){
             String line;
@@ -77,6 +88,28 @@ public class Protocol {
                     total++;
                 }
             }
+
+            //total the files readings
+            this.fileTotalReadings = total;
+
+            //ideas:
+            //need to set up the metadata payload
+            //split could work
+            //will build the payload with "|" for formatting as it rarely appears in normal filenames or numbers
+
+
+            //this tells the server when it has received all the data and when to stop expecting more packets
+            //note blank lines should not count as valid readings
+            //building the metadata payload string
+
+            String payload = this.outputFileName + "|" + this.maxPatchSize + "|" + this.fileTotalReadings;
+
+            //constructor of the meta segment
+            /**/
+            Segment meta = new Segment(0,SegmentType.Meta, payload ,payload.getBytes().length);
+
+
+
 
         //temp catch to be updated later
         } catch (IOException e) {
