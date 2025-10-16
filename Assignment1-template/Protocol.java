@@ -2,14 +2,8 @@
  * Replace the following string of 0s with your student number
  * 000000000
  */
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.SocketException;
-import java.net.UnknownHostException;
+import java.io.*;
+import java.net.*;
 
 public class Protocol {
 
@@ -79,6 +73,8 @@ public class Protocol {
 
 
         int total = 0;
+
+        //count the total lines to know what to expect
         try(BufferedReader br = new BufferedReader(new FileReader(inputFile))){
             String line;
 
@@ -109,11 +105,29 @@ public class Protocol {
             Segment meta = new Segment(0,SegmentType.Meta, payload ,payload.getBytes().length);
 
 
+            //we are converting the object into byes as datagram socket can only send over raw bytes not objects
+
+            //we need yet another memory buffer that collects the raw bytes
+            //later reconstructed with .toByteArray
+            //serialise and send the data over, kind of like a container.
 
 
-        //temp catch to be updated later
+            //object to byte stream
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try(ObjectOutputStream oos = new ObjectOutputStream(baos)){
+                oos.writeObject(meta);
+            }
+
+            //byte stream to array/memory
+            byte[] bytes = baos.toByteArray();
+            DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
+            this.socket.send(packet);
+
+        //catch method if metaData fails to send
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            System.out.println("Client: Failed to send metaData: " + e.getMessage());
+            System.out.println("Client: exit ... ");
+            System.exit(0);
         }
     }
 
