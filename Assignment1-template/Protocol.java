@@ -65,72 +65,54 @@ public class Protocol {
     * "I will be sending over this many readings, in batches of X, please store them in this output file."
     *
     * */
-	public void sendMetadata()
-    {
-        //ideas:
-        //buffer needed to send over information
-        //need to count the total readings
+	public void sendMetadata() {
+		try {
+			// first count how many readings are actually in the csv file
+			int total = 0;
+			try (BufferedReader br = new BufferedReader(new FileReader(inputFile))) {
+				String line;
+				while ((line = br.readLine()) != null) {
+					// ignore blank lines
+					if (!line.trim().isEmpty()) total++;
+				}
+			}
+			this.fileTotalReadings = total;
+
+			// build the meta data payload: total readings, patch size, and the output file name
+			//String payload = this.fileTotalReadings + "," + this.maxPatchSize + "," + this.outputFileName;
+			String payload = this.fileTotalReadings + "," + this.outputFileName + "," + this.maxPatchSize;
 
 
-        int total = 0;
 
-        //count the total lines to know what to expect
-        try(BufferedReader br = new BufferedReader(new FileReader(inputFile))){
-            String line;
+			// create the meta segment with seqNum 0 since this is always the first thing sent
+			System.out.println("DEBUG META payload=[" + payload + "]");
+			Segment meta = new Segment(0, SegmentType.Meta, payload, payload.getBytes().length);
 
-            //need to check if the there are still lines to read
-            while((line = br.readLine()) != null){
-                if (!line.trim().isEmpty()){
-                    total++;
-                }
-            }
+			// turn the meta segment into raw bytes so it can be sent through UDP
+			ByteArrayOutputStream baos = new ByteArrayOutputStream();
+			try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+				oos.writeObject(meta);
+				oos.flush();
+			}
 
-            //total the files readings
-            this.fileTotalReadings = total;
+			// send the packet to the server using the IP and port from initProtocol
+			byte[] bytes = baos.toByteArray();
+			DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
+			this.socket.send(packet);
 
-            //ideas:
-            //need to set up the metadata payload
-            //split could work
-            //will build the payload with "|" for formatting as it rarely appears in normal filenames or numbers
+			// confirmation for the client terminal so I know it actually sent
+			System.out.println("CLIENT: Sending meta data");
+			System.out.printf("CLIENT: META [SEQ#0] (Number of readings:%d, file name:%s, patch size:%d)%n",
+					this.fileTotalReadings, this.outputFileName, this.maxPatchSize);
+			System.out.println("------------------------------------------------------------------");
 
-
-            //this tells the server when it has received all the data and when to stop expecting more packets
-            //note blank lines should not count as valid readings
-            //building the metadata payload string
-
-            String payload = this.outputFileName + "|" + this.maxPatchSize + "|" + this.fileTotalReadings;
-
-            //constructor of the meta segment
-            /**/
-            Segment meta = new Segment(0,SegmentType.Meta, payload ,payload.getBytes().length);
-
-
-            //we are converting the object into byes as datagram socket can only send over raw bytes not objects
-
-            //we need yet another memory buffer that collects the raw bytes
-            //later reconstructed with .toByteArray
-            //serialise and send the data over, kind of like a container.
-
-
-            //object to byte stream
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try(ObjectOutputStream oos = new ObjectOutputStream(baos)){
-                oos.writeObject(meta);
-            }
-
-            //byte stream to array/memory
-            byte[] bytes = baos.toByteArray();
-            DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
-            this.socket.send(packet);
-
-        //catch method if metaData fails to send
-        } catch (IOException e) {
-            System.out.println("Client: Failed to send metaData: " + e.getMessage());
-            System.out.println("Client: exit ... ");
-            System.exit(0);
-        }
-    }
-
+		} catch (IOException e) {
+			// if anything fails during reading or sending, print it and stop the client
+			System.out.println("CLIENT: Failed to send meta data: " + e.getMessage());
+			System.out.println("CLIENT: Exit ...");
+			System.exit(0);
+		}
+	}
 
 	/* 
 	 * This method read and send the next data segment (dataSeg) to the server. 
