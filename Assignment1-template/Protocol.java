@@ -118,8 +118,48 @@ public class Protocol {
 	 * This method read and send the next data segment (dataSeg) to the server. 
 	 * See coursework specification for full details.
 	 */
-	public void readAndSend() { 
-		System.exit(0);
+	public void readAndSend()
+    {
+
+//psudo code added
+/*procedure readAndSend()
+
+    if sentReadings >= fileTotalReadings then
+        exit procedure      // nothing left to send
+
+    open inputFile for reading
+    skip first sentReadings non-empty lines
+    readingsBatch = empty list
+
+    while readingsBatch.size < maxPatchSize
+          and not end_of_file
+          read next non-empty line
+          add line to readingsBatch
+
+    payload = join readingsBatch with ";"   // join with semicolons
+
+    dataSeg = new Segment()
+    dataSeg.type = Data
+    dataSeg.seqNum = toggle between 1 and 0 each send
+    dataSeg.size = length(payload)
+    dataSeg.payLoad = payload
+    dataSeg.checksum = calculateChecksum(payload)
+
+    serialize dataSeg to bytes
+    send bytes through UDP socket to ipAddress:portNumber
+
+    sentReadings += readingsBatch.size
+    totalSegments += 1
+
+    print "CLIENT: Send: DATA [SEQ#", dataSeg.seqNum,
+          "] (size:", dataSeg.size, ", crc:", dataSeg.checksum,
+          ", content:", payload, ")"
+
+end procedure
+
+ */
+
+        System.exit(0);
 	}
 
 	/* 
