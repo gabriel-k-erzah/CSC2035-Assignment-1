@@ -4,6 +4,7 @@
  */
 import java.io.*;
 import java.net.*;
+import java.util.*;
 
 public class Protocol {
 
@@ -120,6 +121,43 @@ public class Protocol {
 	 */
 	public void readAndSend()
     {
+
+        if (sentReadings >= fileTotalReadings) {
+            System.exit(0);
+        }
+
+        List<String> batchReadings = new ArrayList<>();
+        //use buffer to read the file
+        try (BufferedReader br = new BufferedReader(new FileReader(inputFile))){
+
+            //to hold each line that we read
+            String line;
+            //count for the skipped lines
+            int skipped = 0;
+
+
+            while (skipped < sentReadings && (line = br.readLine()) != null){
+                //if the line isn't blank we count it as a valid reading
+                //counter for the skipped lines
+                if (!line.trim().isEmpty()) {
+                    skipped++;
+                }
+
+
+            //collect the batch
+                int count = 0;
+                // Keep reading until we reach the patch size or hit end of file
+                while (count < maxPatchSize && (line = br.readLine()) != null) {
+                    // Only add non-empty lines (ignore blank ones)
+                    if (!line.trim().isEmpty()) {
+                        batchReadings.add(line);  // store this reading in our list
+                        count++;                  // increase the count for this batch
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
 //psudo code added
 /*procedure readAndSend()
