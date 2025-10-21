@@ -155,8 +155,29 @@ public class Protocol {
                     }
                 }
             }
+
         } catch (IOException e) {
             throw new RuntimeException(e);
+
+
+            /*
+            dataSeg = new Segment();
+            dataSeg.setType(SegmentType.Data);
+            int nextSeq = (dataSeg.getSeqNum() == 1 ? 0: 0 : 1);
+            dataSeg.setSeqNum(nextSeq);
+            dataSeg.setSize(payload.length());
+            dataSeg.setPayLoad(payload);
+            long crc = dataSeg.calculateChecksum();
+            dataSeg.setChecksum(crc);
+             */
+
+
+
+
+
+
+
+
         }
 
 //psudo code added
