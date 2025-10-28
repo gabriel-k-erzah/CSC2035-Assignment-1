@@ -1,6 +1,6 @@
 /*
  * Replace the following string of 0s with your student number
- * 000000000
+ *
  */
 import java.io.*;
 import java.net.*;
@@ -43,8 +43,7 @@ public class Protocol {
 	// Shared Protocol instance so Client and Server access and operate on the same values for the protocol’s attributes (the above attributes).
 	public static Protocol instance = new Protocol();
 
-	/**************************************************************************************************************************************
-	 **************************************************************************************************************************************
+	/****************************************************************************************************************************************************************************************************************************************************************************
 	 * For this assignment, you have to implement the following methods:
 	 *		sendMetadata()
 	 *      readandSend()
@@ -115,129 +114,200 @@ public class Protocol {
 		}
 	}
 
+    // part 1 done
+
 	/* 
 	 * This method read and send the next data segment (dataSeg) to the server. 
 	 * See coursework specification for full details.
 	 */
-	public void readAndSend()
-    {
 
+
+    /* read up to patch-size readings and send as one Data segment */
+    public void readAndSend()
+    {
         if (sentReadings >= fileTotalReadings) {
-            System.exit(0);
+            return;
         }
 
         List<String> batchReadings = new ArrayList<>();
-        //use buffer to read the file
-        try (BufferedReader br = new BufferedReader(new FileReader(inputFile))){
+        try (BufferedReader br = new BufferedReader(new FileReader(inputFile))) {
 
-            //to hold each line that we read
             String line;
-            //count for the skipped lines
             int skipped = 0;
 
-
-            while (skipped < sentReadings && (line = br.readLine()) != null){
-                //if the line isn't blank we count it as a valid reading
-                //counter for the skipped lines
+            // skip already-sent non-empty lines
+            while (skipped < sentReadings && (line = br.readLine()) != null) {
                 if (!line.trim().isEmpty()) {
                     skipped++;
                 }
+            }
 
-
-            //collect the batch
-                int count = 0;
-                // Keep reading until we reach the patch size or hit end of file
-                while (count < maxPatchSize && (line = br.readLine()) != null) {
-                    // Only add non-empty lines (ignore blank ones)
-                    if (!line.trim().isEmpty()) {
-                        batchReadings.add(line);  // store this reading in our list
-                        count++;                  // increase the count for this batch
-                    }
+            // collect up to maxPatchSize non-empty lines
+            int count = 0;
+            while (count < maxPatchSize && (line = br.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    batchReadings.add(line);
+                    count++;
                 }
             }
 
+            if (batchReadings.isEmpty()) {
+                return;
+            }
+
+            String payload = (batchReadings.size() == 1) ? batchReadings.get(0) : String.join(";", batchReadings);
+
+            // toggle seq based on previous instance value (initProtocol sets dataSeg initially)
+            int lastSeq = this.dataSeg.getSeqNum();
+            int nextSeq = (lastSeq == 1) ? 0 : 1;
+
+            // create data segment (constructor sets payload & size & checksum)
+            dataSeg = new Segment(nextSeq, SegmentType.Data, payload, payload.length());
+
+            // serialize and send
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+                oos.writeObject(dataSeg);
+                oos.flush();
+            }
+            byte[] bytes = baos.toByteArray();
+            DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
+            this.socket.send(packet);
+
+            // update counters and print
+            sentReadings += batchReadings.size();
+            totalSegments += 1;
+
+            System.out.println("CLIENT: Send: DATA [SEQ#" + dataSeg.getSeqNum() + "](size:" + dataSeg.getSize()
+                    + ", crc: " + dataSeg.getChecksum() + ", content:" + payload + ")");
+            System.out.println("***************************************************************************************************");
+
         } catch (IOException e) {
-            throw new RuntimeException(e);
-
-
-            /*
-            dataSeg = new Segment();
-            dataSeg.setType(SegmentType.Data);
-            int nextSeq = (dataSeg.getSeqNum() == 1 ? 0: 0 : 1);
-            dataSeg.setSeqNum(nextSeq);
-            dataSeg.setSize(payload.length());
-            dataSeg.setPayLoad(payload);
-            long crc = dataSeg.calculateChecksum();
-            dataSeg.setChecksum(crc);
-             */
-
-
-
-
-
-
-
-
+            System.out.println("CLIENT: Error reading/sending data: " + e.getMessage());
+            System.out.println("CLIENT: Exit ...");
+            System.exit(0);
         }
+    }
 
-//psudo code added
-/*procedure readAndSend()
-
-    if sentReadings >= fileTotalReadings then
-        exit procedure      // nothing left to send
-
-    open inputFile for reading
-    skip first sentReadings non-empty lines
-    readingsBatch = empty list
-
-    while readingsBatch.size < maxPatchSize
-          and not end_of_file
-          read next non-empty line
-          add line to readingsBatch
-
-    payload = join readingsBatch with ";"   // join with semicolons
-
-    dataSeg = new Segment()
-    dataSeg.type = Data
-    dataSeg.seqNum = toggle between 1 and 0 each send
-    dataSeg.size = length(payload)
-    dataSeg.payLoad = payload
-    dataSeg.checksum = calculateChecksum(payload)
-
-    serialize dataSeg to bytes
-    send bytes through UDP socket to ipAddress:portNumber
-
-    sentReadings += readingsBatch.size
-    totalSegments += 1
-
-    print "CLIENT: Send: DATA [SEQ#", dataSeg.seqNum,
-          "] (size:", dataSeg.size, ", crc:", dataSeg.checksum,
-          ", content:", payload, ")"
-
-end procedure
-
- */
-
-        System.exit(0);
-	}
-
-	/* 
+    /*
 	 * This method receives the current Ack segment (ackSeg) from the server 
 	 * See coursework specification for full details.
 	 */
-	public boolean receiveAck() { 
-		System.exit(0);
-		return false;
-	}
+    public boolean receiveAck() throws SocketTimeoutException {
+        try {
+            // 1. Prepare a buffer and packet to receive an incoming UDP packet
+            byte[] buf = new byte[Protocol.MAX_Segment_SIZE];
+            DatagramPacket incomingPacket = new DatagramPacket(buf, buf.length);
 
-	/* 
+
+            // 2. Block and wait for a packet from the server
+            socket.receive(incomingPacket);
+
+            // 3. Deserialize the incoming packet into a Segment object
+            int len = incomingPacket.getLength();
+            ByteArrayInputStream bais = new ByteArrayInputStream(incomingPacket.getData(), 0, len);
+            ObjectInputStream ois = new ObjectInputStream(bais);
+            Segment ack = (Segment) ois.readObject();
+
+            //store the ack in class var
+            this.ackSeg = ack;
+
+            // 4. Check that the received segment is an ACK
+            if (ack.getType() != SegmentType.Ack) {
+                // not an Ack — ignore / signal failure
+                return false;
+            }
+
+            // 5. Verify the ACK sequence number matches the last sent Data segment
+            int expectedSeq = dataSeg.getSeqNum();    // seq of the data we most recently sent
+            if (ack.getSeqNum() == expectedSeq) {
+                // 6. Correct ACK: print message, update state if final, and return true
+                System.out.println("CLIENT: RECEIVE: ACK [SEQ#" + ack.getSeqNum() + "]");
+
+                // If we've already sent all readings and this ACK confirms the final one:
+                if (sentReadings >= fileTotalReadings) {
+                    System.out.println("***************************************************************************************************");
+                    System.out.println("Total segments: " + totalSegments);
+                    System.exit(0);   // per spec: exit when final ack received
+                }
+
+                // Otherwise this ack is good and we continue
+                return true;
+            } else {
+                // 7. Wrong seq (duplicate or unexpected) — indicate failure
+                return false;
+            }
+
+        } catch (SocketTimeoutException ste) {
+            //let caller (timeout loop) handle retransmission
+            throw ste;
+        } catch (ClassNotFoundException e) {
+            System.out.println("CLIENT: Received unknown object: " + e.getMessage());
+            return false;
+        } catch (IOException e) {
+            System.out.println("CLIENT: Error receiving/deserializing ACK: " + e.getMessage());
+            System.out.println("CLIENT: Exit ...");
+            System.exit(0);
+            return false; // unreachable
+        }
+    }
+
+    /*
 	 * This method starts a timer and does re-transmission of the Data segment 
 	 * See coursework specification for full details.
 	 */
-	public void startTimeoutWithRetransmission()   {  
-		System.exit(0);
-	}
 
+    public void startTimeoutWithRetransmission() {
+        try {
+            socket.setSoTimeout(this.timeout);
+
+            while (true) {
+                try {
+                    boolean got = this.receiveAck(); // declares throws SocketTimeoutException
+                    if (got) {
+                        this.currRetry = 0;
+                        return; // success for this segment
+                    }
+                    // wrong/duplicate ACK: loop again until correct ACK or timeout
+                } catch (SocketTimeoutException ste) {
+                    this.currRetry++;
+                    if (this.currRetry > this.maxRetries) {
+                        System.out.println("CLIENT: Maximum retries exceeded (" + this.maxRetries + "). Exit.");
+                        System.out.println("CLIENT: Exit ...");
+                        System.exit(0);
+                    }
+
+                    System.out.println("CLIENT: TIMEOUT ALERT");
+                    System.out.println("CLIENT: Re-sending the same segment again, current retry " + this.currRetry);
+
+                    try {
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+                            oos.writeObject(this.dataSeg);
+                            oos.flush();
+                        }
+                        byte[] bytes = baos.toByteArray();
+                        DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
+                        this.socket.send(packet);
+                        this.totalSegments += 1;
+                        System.out.println("CLIENT: Send: DATA [SEQ#" + dataSeg.getSeqNum() + "]"
+                                + "(size:" + dataSeg.getSize() + ", crc:" + dataSeg.getChecksum() + ")");
+                    } catch (IOException ioe) {
+                        System.out.println("CLIENT: Error re-sending segment: " + ioe.getMessage());
+                        System.out.println("CLIENT: Exit ...");
+                        System.exit(0);
+                    }
+                }
+            }
+        } catch (SocketException se) {
+            System.out.println("CLIENT: Socket error while setting timeout: " + se.getMessage());
+            System.out.println("CLIENT: Exit ...");
+            System.exit(0);
+        } finally {
+            //always restore blocking mode
+            try { socket.setSoTimeout(0); } catch (Exception ignore) {}
+        }
+    }
 
 	/* 
 	 * This method is used by the server to receive the Data segment in Lost Ack mode
@@ -249,8 +319,6 @@ end procedure
 
 
 	/*************************************************************************************************************************************
-	 **************************************************************************************************************************************
-	 **************************************************************************************************************************************
 	These methods are implemented for you .. Do NOT Change them 
 	 **************************************************************************************************************************************
 	 **************************************************************************************************************************************
