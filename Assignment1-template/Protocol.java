@@ -1,6 +1,6 @@
 /*
  * Replace the following string of 0s with your student number
- *
+ * 240242385 *
  */
 import java.io.*;
 import java.net.*;
@@ -106,8 +106,10 @@ public class Protocol {
 					this.fileTotalReadings, this.outputFileName, this.maxPatchSize);
 			System.out.println("------------------------------------------------------------------");
 
+
+            // if anything fails during reading or sending, print it and stop the client
 		} catch (IOException e) {
-			// if anything fails during reading or sending, print it and stop the client
+
 			System.out.println("CLIENT: Failed to send meta data: " + e.getMessage());
 			System.out.println("CLIENT: Exit ...");
 			System.exit(0);
@@ -170,6 +172,7 @@ public class Protocol {
                 oos.writeObject(dataSeg);
                 oos.flush();
             }
+
             byte[] bytes = baos.toByteArray();
             DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
             this.socket.send(packet);
@@ -182,6 +185,7 @@ public class Protocol {
                     + ", crc: " + dataSeg.getChecksum() + ", content:" + payload + ")");
             System.out.println("***************************************************************************************************");
 
+            //error handling
         } catch (IOException e) {
             System.out.println("CLIENT: Error reading/sending data: " + e.getMessage());
             System.out.println("CLIENT: Exit ...");
@@ -313,9 +317,166 @@ public class Protocol {
 	 * This method is used by the server to receive the Data segment in Lost Ack mode
 	 * See coursework specification for full details.
 	 */
-	public void receiveWithAckLoss(DatagramSocket serverSocket, float loss)  {
-		System.exit(0);
-	}
+    /*
+     * Lost-ACK mode (server side):
+     * - We still receive everything normally.
+     * - We sometimes "lose" the ACK on purpose (using 'loss' probability).
+     * - Client should timeout and resend the SAME DATA; we must be idempotent.
+     */
+    public void receiveWithAckLoss(DatagramSocket serverSocket, float loss)  {
+        int expectedSeq = 0;        // which DATA seq we’re expecting next (0 or 1)
+        boolean outputReady = false;
+        int totalExpected = 0;      // number of readings expected (from META payload)
+        int written = 0;            // how many lines we’ve actually written
+
+        BufferedWriter out = null;  // where we write the readings
+
+        try {
+            while (true) {
+                // --- 1) Block for a packet from the client ---
+                byte[] buf = new byte[Protocol.MAX_Segment_SIZE];
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                serverSocket.receive(pkt); // blocking
+
+                // --- 2) Safe deserialize (only use the actual received length) ---
+                int len = pkt.getLength();
+                Segment seg;
+                try (ObjectInputStream ois = new ObjectInputStream(
+                        new ByteArrayInputStream(pkt.getData(), 0, len))) {
+                    seg = (Segment) ois.readObject();
+                }
+
+                // --- 3) Handle META first (client sends this before any data) ---
+                if (seg.getType() == SegmentType.Meta) {
+                    // format: "totalReadings,outputFileName,patchSize"
+                    String metaPayload;
+                    try {
+                        metaPayload = seg.getPayLoad(); // if your Segment uses getPayload(), change it
+                    } catch (Exception ignore) {
+                        metaPayload = "";
+                    }
+
+                    String[] parts = metaPayload.split(",", 3);
+                    if (parts.length == 3) {
+                        totalExpected      = Integer.parseInt(parts[0].trim());
+                        this.outputFileName = parts[1].trim();
+                        this.maxPatchSize   = Integer.parseInt(parts[2].trim());
+                    }
+
+                    // (Re)open output file fresh on every run
+                    if (out != null) { try { out.close(); } catch (IOException ignore) {} }
+                    out = new BufferedWriter(new FileWriter(this.outputFileName, false));
+                    outputReady = true;
+
+                    System.out.println("SERVER: META received -> total=" + totalExpected
+                            + ", file=" + this.outputFileName + ", patch=" + this.maxPatchSize);
+
+                    // --- ACK META (or simulate losing it) ---
+                    if (!isLost(loss)) {
+                        // build + send ACK inline (no helpers)
+                        Segment ack = new Segment(seg.getSeqNum(), SegmentType.Ack, "", 0);
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+                            oos.writeObject(ack);
+                            oos.flush();
+                        }
+                        byte[] ab = baos.toByteArray();
+                        DatagramPacket ap = new DatagramPacket(ab, ab.length, pkt.getAddress(), pkt.getPort());
+                        serverSocket.send(ap);
+                        System.out.println("SERVER: SEND ACK (META) seq=" + seg.getSeqNum());
+                    } else {
+                        System.out.println("SERVER: *** Simulated ACK loss (META) seq=" + seg.getSeqNum() + " ***");
+                    }
+                    continue; // back to receive loop
+                }
+
+                // --- 4) DATA handling (idempotent write + maybe-ACK) ---
+                if (seg.getType() == SegmentType.Data) {
+                    if (!outputReady) {
+                        // Defensive: we got DATA before META (shouldn't happen). ACK anyway to avoid deadlock.
+                        System.out.println("SERVER: DATA before META — ACKing anyway to keep client moving");
+                        if (!isLost(loss)) {
+                            Segment ack = new Segment(seg.getSeqNum(), SegmentType.Ack, "", 0);
+                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                            try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+                                oos.writeObject(ack);
+                                oos.flush();
+                            }
+                            byte[] ab = baos.toByteArray();
+                            DatagramPacket ap = new DatagramPacket(ab, ab.length, pkt.getAddress(), pkt.getPort());
+                            serverSocket.send(ap);
+                            System.out.println("SERVER: SEND ACK (no META) seq=" + seg.getSeqNum());
+                        } else {
+                            System.out.println("SERVER: *** Simulated ACK loss (no META) seq=" + seg.getSeqNum() + " ***");
+                        }
+                        continue;
+                    }
+
+                    boolean inOrder = (seg.getSeqNum() == expectedSeq);
+
+                    if (inOrder) {
+                        // first time seeing this DATA -> write its payload once
+                        String payload;
+                        try {
+                            payload = seg.getPayLoad(); // change to getPayload() if that's your method
+                        } catch (Exception ignore) {
+                            payload = "";
+                        }
+
+                        if (payload != null && !payload.isEmpty()) {
+                            String[] lines = payload.split(";");
+                            for (String line : lines) {
+                                if (!line.trim().isEmpty()) {
+                                    out.write(line);
+                                    out.newLine();
+                                    written++;
+                                }
+                            }
+                            out.flush();
+                        }
+
+                        // flip expected seq for next unique DATA
+                        expectedSeq = (expectedSeq == 0) ? 1 : 0;
+
+                        System.out.println("SERVER: Wrote DATA seq=" + seg.getSeqNum()
+                                + " (batch lines: " + (payload.isEmpty() ? 0 : payload.split(";").length) + ")");
+                    } else {
+                        // duplicate DATA (client retried because its ACK got “lost”)
+                        System.out.println("SERVER: Duplicate DATA seq=" + seg.getSeqNum()
+                                + " — not writing again, will just re-ACK");
+                    }
+
+                    // ACK the seq we received (or drop it to simulate loss)
+                    if (!isLost(loss)) {
+                        Segment ack = new Segment(seg.getSeqNum(), SegmentType.Ack, "", 0);
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+                            oos.writeObject(ack);
+                            oos.flush();
+                        }
+                        byte[] ab = baos.toByteArray();
+                        DatagramPacket ap = new DatagramPacket(ab, ab.length, pkt.getAddress(), pkt.getPort());
+                        serverSocket.send(ap);
+                        System.out.println("SERVER: SEND ACK (DATA) seq=" + seg.getSeqNum());
+                    } else {
+                        System.out.println("SERVER: *** Simulated ACK loss (DATA) seq=" + seg.getSeqNum() + " ***");
+                    }
+
+                    // optional stop condition: we’ve written everything the client told us to expect
+                    if (totalExpected > 0 && written >= totalExpected) {
+                        System.out.println("SERVER: All readings received (" + written + "/" + totalExpected + "). Done!");
+                        break;
+                    }
+                }
+
+                // Any other segment types: ignore or log and continue
+            }
+        } catch (IOException | ClassNotFoundException ex) {
+            System.out.println("SERVER: Error in receiveWithAckLoss: " + ex.getMessage());
+        } finally {
+            try { if (out != null) out.close(); } catch (IOException ignore) {}
+        }
+    }
 
 
 	/*************************************************************************************************************************************
