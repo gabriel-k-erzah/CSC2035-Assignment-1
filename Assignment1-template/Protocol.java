@@ -1,6 +1,6 @@
 /*
  * Replace the following string of 0s with your student number
- * 240242385 *
+ *240242385*
  */
 import java.io.*;
 import java.net.*;
@@ -119,7 +119,7 @@ public class Protocol {
     // part 1 done
 
 	/* 
-	 * This method read and send the next data segment (dataSeg) to the server. 
+	 * This method reads and sends the next data segment (dataSeg) to the server.
 	 * See coursework specification for full details.
 	 */
 
@@ -137,7 +137,7 @@ public class Protocol {
             String line;
             int skipped = 0;
 
-            // skip already-sent non-empty lines
+            // skip already sent non-empty lines
             while (skipped < sentReadings && (line = br.readLine()) != null) {
                 if (!line.trim().isEmpty()) {
                     skipped++;
@@ -199,15 +199,15 @@ public class Protocol {
 	 */
     public boolean receiveAck() throws SocketTimeoutException {
         try {
-            // 1. Prepare a buffer and packet to receive an incoming UDP packet
+            //Prepare a buffer and packet to receive an incoming UDP packet
             byte[] buf = new byte[Protocol.MAX_Segment_SIZE];
             DatagramPacket incomingPacket = new DatagramPacket(buf, buf.length);
 
 
-            // 2. Block and wait for a packet from the server
+            //Block and wait for a packet from the server
             socket.receive(incomingPacket);
 
-            // 3. Deserialize the incoming packet into a Segment object
+            //Deserialize the incoming packet into a Segment object
             int len = incomingPacket.getLength();
             ByteArrayInputStream bais = new ByteArrayInputStream(incomingPacket.getData(), 0, len);
             ObjectInputStream ois = new ObjectInputStream(bais);
@@ -216,16 +216,16 @@ public class Protocol {
             //store the ack in class var
             this.ackSeg = ack;
 
-            // 4. Check that the received segment is an ACK
+            //Check that the received segment is an ACK
             if (ack.getType() != SegmentType.Ack) {
-                // not an Ack — ignore / signal failure
+                // not an Ack ignore / signal failure
                 return false;
             }
 
-            // 5. Verify the ACK sequence number matches the last sent Data segment
+            // We need to verify the ACK sequence number matches the last sent Data segment
             int expectedSeq = dataSeg.getSeqNum();    // seq of the data we most recently sent
             if (ack.getSeqNum() == expectedSeq) {
-                // 6. Correct ACK: print message, update state if final, and return true
+                //Correct ACK print message, update state if final, and return true
                 System.out.println("CLIENT: RECEIVE: ACK [SEQ#" + ack.getSeqNum() + "]");
 
                 // If we've already sent all readings and this ACK confirms the final one:
@@ -238,16 +238,18 @@ public class Protocol {
                 // Otherwise this ack is good and we continue
                 return true;
             } else {
-                // 7. Wrong seq (duplicate or unexpected) — indicate failure
+                //Wrong seq duplicate or unexpected indicate failure
                 return false;
             }
 
         } catch (SocketTimeoutException ste) {
             //let caller (timeout loop) handle retransmission
             throw ste;
+
         } catch (ClassNotFoundException e) {
             System.out.println("CLIENT: Received unknown object: " + e.getMessage());
             return false;
+
         } catch (IOException e) {
             System.out.println("CLIENT: Error receiving/deserializing ACK: " + e.getMessage());
             System.out.println("CLIENT: Exit ...");
@@ -291,11 +293,14 @@ public class Protocol {
                             oos.flush();
                         }
                         byte[] bytes = baos.toByteArray();
+
                         DatagramPacket packet = new DatagramPacket(bytes, bytes.length, this.ipAddress, this.portNumber);
                         this.socket.send(packet);
                         this.totalSegments += 1;
                         System.out.println("CLIENT: Send: DATA [SEQ#" + dataSeg.getSeqNum() + "]"
                                 + "(size:" + dataSeg.getSize() + ", crc:" + dataSeg.getChecksum() + ")");
+
+
                     } catch (IOException ioe) {
                         System.out.println("CLIENT: Error re-sending segment: " + ioe.getMessage());
                         System.out.println("CLIENT: Exit ...");
@@ -324,21 +329,21 @@ public class Protocol {
      * - Client should timeout and resend the SAME DATA; we must be idempotent.
      */
     public void receiveWithAckLoss(DatagramSocket serverSocket, float loss)  {
-        int expectedSeq = 0;        // which DATA seq we’re expecting next (0 or 1)
+        int expectedSeq = 0;
         boolean outputReady = false;
-        int totalExpected = 0;      // number of readings expected (from META payload)
-        int written = 0;            // how many lines we’ve actually written
+        int totalExpected = 0;
+        int written = 0;
 
-        BufferedWriter out = null;  // where we write the readings
+        BufferedWriter out = null;
 
         try {
             while (true) {
-                // --- 1) Block for a packet from the client ---
+                //Block for a packet from the client
                 byte[] buf = new byte[Protocol.MAX_Segment_SIZE];
                 DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                 serverSocket.receive(pkt); // blocking
 
-                // --- 2) Safe deserialize (only use the actual received length) ---
+                //Safe deserialize only use the actual received length
                 int len = pkt.getLength();
                 Segment seg;
                 try (ObjectInputStream ois = new ObjectInputStream(
@@ -346,12 +351,13 @@ public class Protocol {
                     seg = (Segment) ois.readObject();
                 }
 
-                // --- 3) Handle META first (client sends this before any data) ---
+                //Handle META first (client sends this before any data
                 if (seg.getType() == SegmentType.Meta) {
-                    // format: "totalReadings,outputFileName,patchSize"
+
+                    //format: "totalReadings,outputFileName,patchSize"
                     String metaPayload;
                     try {
-                        metaPayload = seg.getPayLoad(); // if your Segment uses getPayload(), change it
+                        metaPayload = seg.getPayLoad();
                     } catch (Exception ignore) {
                         metaPayload = "";
                     }
@@ -363,7 +369,7 @@ public class Protocol {
                         this.maxPatchSize   = Integer.parseInt(parts[2].trim());
                     }
 
-                    // (Re)open output file fresh on every run
+                    //open output file fresh on every run
                     if (out != null) { try { out.close(); } catch (IOException ignore) {} }
                     out = new BufferedWriter(new FileWriter(this.outputFileName, false));
                     outputReady = true;
@@ -371,9 +377,9 @@ public class Protocol {
                     System.out.println("SERVER: META received -> total=" + totalExpected
                             + ", file=" + this.outputFileName + ", patch=" + this.maxPatchSize);
 
-                    // --- ACK META (or simulate losing it) ---
+                    //ACK META simulate losing it
                     if (!isLost(loss)) {
-                        // build + send ACK inline (no helpers)
+
                         Segment ack = new Segment(seg.getSeqNum(), SegmentType.Ack, "", 0);
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
                         try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
@@ -387,13 +393,14 @@ public class Protocol {
                     } else {
                         System.out.println("SERVER: *** Simulated ACK loss (META) seq=" + seg.getSeqNum() + " ***");
                     }
-                    continue; // back to receive loop
+                    continue;
                 }
 
-                // --- 4) DATA handling (idempotent write + maybe-ACK) ---
+                //data handling idempotent write maybe-ACK
                 if (seg.getType() == SegmentType.Data) {
                     if (!outputReady) {
-                        // Defensive: we got DATA before META (shouldn't happen). ACK anyway to avoid deadlock.
+
+                        // if we get data before it shouldn't happen. ACK anyway to avoid deadlock.
                         System.out.println("SERVER: DATA before META — ACKing anyway to keep client moving");
                         if (!isLost(loss)) {
                             Segment ack = new Segment(seg.getSeqNum(), SegmentType.Ack, "", 0);
@@ -415,10 +422,10 @@ public class Protocol {
                     boolean inOrder = (seg.getSeqNum() == expectedSeq);
 
                     if (inOrder) {
-                        // first time seeing this DATA -> write its payload once
+                        // first time seeing this data
                         String payload;
                         try {
-                            payload = seg.getPayLoad(); // change to getPayload() if that's your method
+                            payload = seg.getPayLoad();
                         } catch (Exception ignore) {
                             payload = "";
                         }
@@ -435,7 +442,7 @@ public class Protocol {
                             out.flush();
                         }
 
-                        // flip expected seq for next unique DATA
+                        // flip expected seq for next unique data
                         expectedSeq = (expectedSeq == 0) ? 1 : 0;
 
                         System.out.println("SERVER: Wrote DATA seq=" + seg.getSeqNum()
@@ -446,7 +453,6 @@ public class Protocol {
                                 + " — not writing again, will just re-ACK");
                     }
 
-                    // ACK the seq we received (or drop it to simulate loss)
                     if (!isLost(loss)) {
                         Segment ack = new Segment(seg.getSeqNum(), SegmentType.Ack, "", 0);
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -462,7 +468,7 @@ public class Protocol {
                         System.out.println("SERVER: *** Simulated ACK loss (DATA) seq=" + seg.getSeqNum() + " ***");
                     }
 
-                    // optional stop condition: we’ve written everything the client told us to expect
+
                     if (totalExpected > 0 && written >= totalExpected) {
                         System.out.println("SERVER: All readings received (" + written + "/" + totalExpected + "). Done!");
                         break;
